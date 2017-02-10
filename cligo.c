@@ -6,6 +6,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <termios.h>
+#include <sys/select.h>
+#include <time.h>
 
 #define CSI "\033["
 #define kaya CSI "48;5;221m"
@@ -96,6 +98,9 @@ int main() {
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = sighandler;
   sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGCONT, &sa, NULL);
+  sigaction(SIGWINCH, &sa, NULL);
+  sigaction(SIGTSTP, &sa, NULL);
 
 #else
   cfmakeraw(&term);
@@ -107,12 +112,27 @@ int main() {
 
   char buf[20];
   while (1) {
-    if (sig == SIGINT) {
-      sa.sa_handler = SIG_DFL;
-      sigaction(SIGINT, &sa, NULL);
-      tty_reset();
-      raise(SIGINT);
-      return SIGINT+128; // not reached
+    switch (sig) {
+      case SIGINT:
+        sa.sa_handler = SIG_DFL;
+        sigaction(SIGINT, &sa, NULL);
+        tty_reset();
+        // an extra line is printed to the terminal with raise(SIGINT) and it looks ugly
+        /*raise(SIGINT);*/
+        /*return SIGINT+128; // not reached*/
+        return 0;
+      case SIGCONT: case SIGWINCH:
+        sigaction(SIGCONT, &sa, NULL);
+        sigaction(SIGWINCH, &sa, NULL);
+        sig = 0;
+        printf(mousemode altscreen hidecur);
+        continue;
+      case SIGTSTP:
+        sig = 0;
+        sigaction(SIGTSTP, &sa, NULL);
+        tty_reset();
+        raise(SIGSTOP);
+        continue;
     }
 
     printboard();
@@ -205,9 +225,11 @@ static void click(int x, int y) {
   if (!board[x][y]) {
     board[x][y] = turn;
     turn = turn == 'b' ? 'w' : 'b';
+    last.x = x;
+    last.y = y;
   }
-  cur.x = last.x = x;
-  cur.y = last.y = y;
+  cur.x = x;
+  cur.y = y;
 }
 
 static void printboard() {
@@ -246,4 +268,6 @@ static void printboard() {
   }
   printf(kaya black xaxis nocolor "\r\n");
   printf(kaya black empty nocolor "\r\n");
+
+  printf("\r\n\r\nit's %s's turn", turn == 'b' ? "black" : "white");
 }
